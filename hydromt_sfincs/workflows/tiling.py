@@ -7,6 +7,8 @@ from typing import List, Union
 
 import geopandas as gpd
 import numpy as np
+import mercantile as mct
+import rasterio
 import xarray as xr
 from affine import Affine
 from PIL import Image
@@ -253,6 +255,151 @@ def create_topobathy_tiles(
             elif fmt == "tif":
                 da_dep.raster.to_raster(file_name)
 
+def create_topobathy_tiles_v2(
+    root: Union[str, Path],
+    region: gpd.GeoDataFrame,
+    datasets_dep: List[dict],
+    index_path: Union[str, Path] = None,
+    zoom_range: Union[int, List[int]] = [0, 13],
+    z_range: List[int] = [-20000.0, 20000.0],
+    fmt="png",
+):
+    """Create webmercator topobathy tiles for a given region.
+
+    Parameters
+    ----------
+    root : Union[str, Path]
+        Directory where the topobathy tiles will be stored.
+    region : gpd.GeoDataFrame
+        GeoDataFrame defining the region for which the tiles will be created.
+    datasets_dep : List[dict]
+        List of dictionaries containing the bathymetry dataarrays.
+    index_path : Union[str, Path], optional
+        Directory where index tiles are stored, by default None
+    zoom_range : Union[int, List[int]], optional
+        Range of zoom levels for which tiles are created, by default [0, 13]
+    z_range : List[int], optional
+        Range of valid elevations, by default [-20000.0, 20000.0]
+    format : str, optional
+        The desired output format of the topobathy tiles, by default "bin". Also "png" and "tif" are supported.
+    """
+
+    assert len(datasets_dep) > 0, "No DEMs provided"
+
+    topobathy_path = os.path.join(root, "topobathy")
+    npix = 256
+
+    # for binary format, use .dat extension
+    if fmt == "bin":
+        extension = "dat"
+    # for net, tif and png extension and format are the same
+    else:
+        extension = fmt
+
+    # if only one zoom level is specified, create tiles up to that zoom level (inclusive)
+    if isinstance(zoom_range, int):
+        zoom_range = [0, zoom_range]
+
+    # get bounding box of region
+    minx, miny, maxx, maxy = region.total_bounds
+
+    for zl in range(zoom_range[1], zoom_range[0] - 1, -1):
+        print("Processing zoom level " + str(zl))
+
+        for i, tile in enumerate(mct.tiles(minx, miny, maxx, maxy, zl, truncate=True)):
+
+            folder = Path(topobathy_path, str(zl), str(tile.x))
+            file_name = Path(topobathy_path, str(zl), f"{tile.x}", f"{tile.y}.{extension}")
+            # tile is a named tuple with properties x, y, z
+            x0,y0,x1,y1 = mct.xy_bounds(tile)
+
+            if zl == zoom_range[1]:
+                # reproject the data to the tile
+                dx = (x1 - x0) / 256
+                dy = (y1 - y0) / 256
+
+                # Generate coordinates for the cell centers
+                x3857 = np.linspace(x0 + dx/2, x1 - dx/2, 256)
+                y3857 = np.linspace(y1 - dy/2, y0 + dy/2 , 256) # from top to bottom
+
+                zg = np.float32(np.full([npix, npix], np.nan))
+
+                da_dep = xr.DataArray(
+                    zg,
+                    coords={"y": y3857, "x": x3857},
+                    dims=["y", "x"],
+                )
+                da_dep.raster.set_crs(3857)
+
+                # get subgrid bathymetry tile
+                da_dep = merge_multi_dataarrays(
+                    da_list=datasets_dep,
+                    da_like=da_dep,
+                )
+                # convert to numpy array
+                data = da_dep.values
+            else:
+                # Every tile from this level has 4 child tiles on the previous lvl
+                # Create a temporary array, 4 times the size of a tile
+                temp = np.full((npix * 2, npix * 2), np.nan, dtype=float)
+                for ic, child in enumerate(mct.children(tile)):
+                    fn = Path(root, str(child.z), str(child.x), f"{child.y}.{extension}")
+                    # Check if the file is really there, if not: it was not written
+                    if not fn.exists():
+                        continue
+                    # order: top-left, top-right, bottom-right, bottom-left
+                    yslice = slice(0, npix) if ic in [0, 1] else slice(npix, None)
+                    xslice = slice(0, npix) if ic in [0, 3] else slice(npix, None)
+
+                    if fmt == "png":
+                        im = np.array(Image.open(fn))
+                        data = rgba2elevation(im, nodata=np.nan, dtype=float)                        
+                        temp[yslice, xslice] = data
+                    elif fmt == "tif":
+                        with rasterio.open(fn) as src:
+                            temp[yslice, xslice] = src.read(1)
+                # coarsen the data using mean
+                temp = np.ma.masked_values(temp.reshape((npix, 2, npix, 2)), np.nan)
+                # dtype may change, fix using astype
+                data = temp.mean(axis=(1, 3)).data.astype(float)
+
+            if np.isnan(data).all():
+                # only nans in this tile
+                continue
+
+            if (
+                np.nanmax(data) < z_range[0]
+                or np.nanmin(data) > z_range[1]
+            ):
+                # all values in tile outside z_range
+                continue
+
+            # create the directory if it does not exist
+            os.makedirs(folder, exist_ok=True)
+            
+            if fmt == "png":
+                rgba = elevation2rgba(data, nodata=np.nan)
+                Image.fromarray(rgba).save(file_name)                
+            elif fmt == "tif":
+                da_dep.raster.to_raster(file_name)
+
+def elevation2rgba(val, nodata=np.nan):
+    """Convert elevation to rgb tuple."""
+    val += 32768
+    r = np.floor(val / 256).astype(np.uint8)
+    g = np.floor(val % 256).astype(np.uint8)
+    b = np.floor((val - np.floor(val)) * 256).astype(np.uint8)
+    mask = np.isnan(val) if np.isnan(nodata) else val == nodata
+    a = np.where(mask, 0, 255).astype(np.uint8)
+    return np.stack((r, g, b, a), axis=2)
+
+
+def rgba2elevation(rgba: np.ndarray, nodata=np.nan, dtype=np.float32):
+    """Convert rgb tuple to elevation."""
+    r, g, b, a = np.split(rgba, 4, axis=2)
+    val = (r * 256 + g + b / 256) - 32768
+    return np.where(a == 0, nodata, val).squeeze().astype(dtype)
+
 
 def deg2num(lat_deg, lon_deg, zoom):
     """Convert lat/lon to webmercator tile number"""
@@ -381,6 +528,6 @@ def tile_window(zl, minx, miny, maxx, maxy):
     # Create window generator
     lu = product(np.arange(minx, maxx, dxy), np.arange(maxy, miny, -dxy))
     for l, u in lu:
-        col = int(odx + (l - minx) / dxy)
-        row = int(ody + (maxy - u) / dxy)
+        col = int(1.0e-3 + odx + (l - minx) / dxy)
+        row = int(1.0e-3 + ody + (maxy - u) / dxy)
         yield Affine(dxy / 256, 0, l, 0, -dxy / 256, u), col, row
