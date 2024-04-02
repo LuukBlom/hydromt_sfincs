@@ -1305,32 +1305,43 @@ class SfincsModel(GridModel):
             Resampling method for reprojecting the curve number data to the model grid.
             By default 'med'. For more information see, :py:meth:`hydromt.raster.RasterDataArray.reproject_like`
         """
-        # get data
-        da_org = self.data_catalog.get_rasterdataset(
-            cn, bbox=self.bbox, buffer=10
-        )
-        # read variable
-        v = "cn"
-        if antecedent_moisture:
-            v = f"cn_{antecedent_moisture}"
-        if isinstance(da_org, xr.Dataset) and v in da_org.data_vars:
-            da_org = da_org[v]
-        elif not isinstance(da_org, xr.DataArray):
-            raise ValueError(f"Could not find variable {v} in {cn}")
+        if self.grid_type == "regular":
+        
+            # get data
+            da_org = self.data_catalog.get_rasterdataset(
+                cn, bbox=self.bbox, buffer=10
+            )
+            # read variable
+            v = "cn"
+            if antecedent_moisture:
+                v = f"cn_{antecedent_moisture}"
+            if isinstance(da_org, xr.Dataset) and v in da_org.data_vars:
+                da_org = da_org[v]
+            elif not isinstance(da_org, xr.DataArray):
+                raise ValueError(f"Could not find variable {v} in {cn}")
 
-        # reproject using median
-        da_cn = da_org.raster.reproject_like(self.grid, method=reproj_method)
+            # reproject using median
+            da_cn = da_org.raster.reproject_like(self.grid, method=reproj_method)
 
-        # convert to potential maximum soil moisture retention S (1000/CN - 10) [inch]
-        da_scs = workflows.cn_to_s(da_cn, self.mask > 0).round(3)
+            # convert to potential maximum soil moisture retention S (1000/CN - 10) [inch]
+            da_scs = workflows.cn_to_s(da_cn, self.mask > 0).round(3)
 
-        # set grid
-        mname = "scs"
-        da_scs.attrs.update(**self._ATTRS.get(mname, {}))
-        self.set_grid(da_scs, name=mname)
-        # update config: remove default infiltration values and set scs map
-        self.config.pop("qinf", None)
-        self.set_config(f"{mname}file", f"sfincs.{mname}")
+            # set grid
+            mname = "scs"
+            da_scs.attrs.update(**self._ATTRS.get(mname, {}))
+            self.set_grid(da_scs, name=mname)
+            # update config: remove default infiltration values and set scs map
+            self.config.pop("qinf", None)
+            self.set_config(f"{mname}file", f"sfincs.{mname}")
+            
+        elif self.grid_type == "quadtree":
+            #TODO change default config values for quadtree models
+            self.quadtree.setup_cn_infiltration(
+                datasets_cn=cn,
+                # buffer_cells=buffer_cells,
+                # interp_method=interp_method,
+            )
+            #TODO check interpolation methods for missing values in xugrid            
 
     # Function to create curve number for SFINCS including recovery via saturated hydraulic conductivity [mm/hr]
     def setup_cn_infiltration_with_ks(

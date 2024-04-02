@@ -193,6 +193,26 @@ class QuadtreeGrid:
         # add data to grid    
         self.data["dep"] = uda
 
+    def setup_cn_infiltration(
+            self,
+            datasets_cn: List[dict],
+            # buffer_cells: int = 0,  # not in list
+            # interp_method: str = "linear",  # used for buffer cells only):
+            logger=logger,
+    ):
+        # TODO add buffer cells and interpolation, see merge function for more info
+        
+        # merge multiple datasets on mesh
+        uda = merge_multi_dataarrays_on_mesh(da_list = [datasets_cn], 
+                                             mesh2d = self.data.grid,
+                                             logger=logger)
+        
+        # convert to potential maximum soil moisture retention S (1000/CN - 10) [inch]
+        uda_scs = workflows.cn_to_s(uda, self.mask > 0).round(3)
+        
+        # add data to grid    
+        self.data["scs"] = uda_scs
+        
     def setup_mask_active(
             self,
             model: str = "sfincs",
