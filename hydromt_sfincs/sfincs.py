@@ -1379,9 +1379,22 @@ class SfincsModel(GridModel):
         df_map = self.data_catalog.get_dataframe(reclass_table, index_col=0)
 
         # Define outputs
-        da_smax = xr.full_like(self.mask, -9999, dtype=np.float32)
-        da_ks = xr.full_like(self.mask, -9999, dtype=np.float32)
-
+        if self.grid_type == "regular":        
+            da_smax = xr.full_like(self.mask, -9999, dtype=np.float32)
+            da_ks = xr.full_like(self.mask, -9999, dtype=np.float32)
+            
+        elif self.grid_type == "quadtree":
+            mesh2d = self.quadtree.data.grid
+            
+            # make an empty data array
+            smax = xr.DataArray(
+                data=np.full(shape=len(mesh2d.face_coordinates), fill_value=np.nan),
+                dims=mesh2d.face_dimension,
+            ) 
+            ks = smax.copy()                       
+            # self.quadtree.data['smax'] = 
+            # self.quadtree.data['ks'] = 
+    
         # Compute resolution land use (we are assuming that is the finest)
         resolution_landuse = np.mean(
             [abs(da_landuse.raster.res[0]), abs(da_landuse.raster.res[1])]
@@ -1393,63 +1406,179 @@ class SfincsModel(GridModel):
 
         # Define the blocks
         nrmax = block_size
-        nmax = np.shape(self.mask)[0]
-        mmax = np.shape(self.mask)[1]
-        refi = self.config["dx"] / resolution_landuse  # finest resolution of landuse
-        nrcb = int(np.floor(nrmax / refi))  # nr of regular cells in a block
-        nrbn = int(np.ceil(nmax / nrcb))  # nr of blocks in n direction
-        nrbm = int(np.ceil(mmax / nrcb))  # nr of blocks in m direction
-        x_dim, y_dim = self.mask.raster.x_dim, self.mask.raster.y_dim
+        
+        #%% Looping over regular grid blocks      
+        if self.grid_type == "regular":         
+            nmax = np.shape(self.mask)[0]
+            mmax = np.shape(self.mask)[1]
+            refi = self.config["dx"] / resolution_landuse  # finest resolution of landuse
+             
+            nrcb = int(np.floor(nrmax / refi))  # nr of regular cells in a block
+            nrbn = int(np.ceil(nmax / nrcb))  # nr of blocks in n direction
+            nrbm = int(np.ceil(mmax / nrcb))  # nr of blocks in m direction
+            x_dim, y_dim = self.mask.raster.x_dim, self.mask.raster.y_dim
 
-        # avoid blocks with width or height of 1
-        merge_last_col = False
-        merge_last_row = False
-        if mmax % nrcb == 1:
-            nrbm -= 1
-            merge_last_col = True
-        if nmax % nrcb == 1:
-            nrbn -= 1
-            merge_last_row = True
+            # avoid blocks with width or height of 1
+            merge_last_col = False
+            merge_last_row = False
+            if mmax % nrcb == 1:
+                nrbm -= 1
+                merge_last_col = True
+            if nmax % nrcb == 1:
+                nrbn -= 1
+                merge_last_row = True
 
-        ## Loop through blocks
-        ib = -1
-        for ii in range(nrbm):
-            bm0 = ii * nrcb  # Index of first m in block
-            bm1 = min(bm0 + nrcb, mmax)  # last m in block
-            if merge_last_col and ii == (nrbm - 1):
-                bm1 += 1
+            ## Loop through blocks
+            ib = -1
+            for ii in range(nrbm):
+                bm0 = ii * nrcb  # Index of first m in block
+                bm1 = min(bm0 + nrcb, mmax)  # last m in block
+                if merge_last_col and ii == (nrbm - 1):
+                    bm1 += 1
 
-            for jj in range(nrbn):
-                bn0 = jj * nrcb  # Index of first n in block
-                bn1 = min(bn0 + nrcb, nmax)  # last n in block
-                if merge_last_row and jj == (nrbn - 1):
-                    bn1 += 1
+                for jj in range(nrbn):
+                    bn0 = jj * nrcb  # Index of first n in block
+                    bn1 = min(bn0 + nrcb, nmax)  # last n in block
+                    if merge_last_row and jj == (nrbn - 1):
+                        bn1 += 1
 
-                # Count
-                ib += 1
-                self.logger.debug(
-                    f"\nblock {ib + 1}/{nrbn * nrbm} -- "
-                    f"col {bm0}:{bm1-1} | row {bn0}:{bn1-1}"
-                )
+                    # Count
+                    ib += 1
+                    self.logger.debug(
+                        f"\nblock {ib + 1}/{nrbn * nrbm} -- "
+                        f"col {bm0}:{bm1-1} | row {bn0}:{bn1-1}"
+                    )
 
-                # calculate transform and shape of block at cell and subgrid level
-                da_mask_block = self.mask.isel(
-                    {x_dim: slice(bm0, bm1), y_dim: slice(bn0, bn1)}
-                ).load()
+                    # calculate transform and shape of block at cell and subgrid level
+                    da_mask_block = self.mask.isel(
+                        {x_dim: slice(bm0, bm1), y_dim: slice(bn0, bn1)}
+                    ).load()
 
-                # Call workflow
-                (
-                    da_smax_block,
-                    da_ks_block,
-                ) = workflows.curvenumber.scs_recovery_determination(
-                    da_landuse, da_HSG, da_Ksat, df_map, da_mask_block
-                )
+                    # Call workflow
+                    (
+                        da_smax_block,
+                        da_ks_block,
+                    ) = workflows.curvenumber.scs_recovery_determination(
+                        da_landuse, da_HSG, da_Ksat, df_map, da_mask_block
+                    )
 
-                # New place in the overall matrix
-                sn, sm = slice(bn0, bn1), slice(bm0, bm1)
-                da_smax[sn, sm] = da_smax_block
-                da_ks[sn, sm] = da_ks_block
+                    # New place in the overall matrix
+                    sn, sm = slice(bn0, bn1), slice(bm0, bm1)
+                    da_smax[sn, sm] = da_smax_block
+                    da_ks[sn, sm] = da_ks_block
+        
+        #%% Same for looping over quadtree mesh, but including levels
+        elif self.grid_type == "quadtree":
+            
+            refi   = 1 TODO CHECK what we need herenr_subgrid_pixels
+            
+            nr_cells = mesh2d.n_face            
+            nlevs = self.quadtree.data.nr_levels
+            
+            # Grid neighbors
+            level = self.quadtree.data.level - 1 # TODO TL: CHECK correct?
+            n   = self.quadtree.data.n - 1
+            m   = self.quadtree.data.m - 1
+                            
+            # Determine first indices and number of cells per refinement level
+            ifirst = np.zeros(nlevs, dtype=int)
+            ilast  = np.zeros(nlevs, dtype=int)
+            nr_cells_per_level = np.zeros(nlevs, dtype=int)
+            ireflast = -1
+            for ic in range(nr_cells):
+                if level[ic]>ireflast:
+                    ifirst[level[ic]] = ic
+                    ireflast = level[ic]
+            for ilev in range(nlevs - 1):
+                ilast[ilev] = ifirst[ilev + 1] - 1
+            ilast[nlevs - 1] = nr_cells - 1
+            for ilev in range(nlevs):
+                nr_cells_per_level[ilev] = ilast[ilev] - ifirst[ilev] + 1 
+            
+            # Loop through all levels
+            for ilev in range(nlevs):
 
+                logger.info("Processing level " + str(ilev + 1) + " of " + str(nlevs) + " ...")
+                
+                # Make blocks off cells in this level only
+                cell_indices_in_level = np.arange(ifirst[ilev], ilast[ilev] + 1, dtype=int)
+                nr_cells_in_level = np.size(cell_indices_in_level)
+                
+                if nr_cells_in_level == 0:
+                    continue
+
+                n0 = np.min(n[ifirst[ilev]:ilast[ilev] + 1])
+                n1 = np.max(n[ifirst[ilev]:ilast[ilev] + 1]) # + 1 # add extra cell to compute u and v in the last row/column
+                m0 = np.min(m[ifirst[ilev]:ilast[ilev] + 1])
+                m1 = np.max(m[ifirst[ilev]:ilast[ilev] + 1]) # + 1 # add extra cell to compute u and v in the last row/column
+                
+                dx   = self.quadtree.data.dx/2**ilev      # cell size
+                dy   = self.quadtree.data.dy/2**ilev      # cell size
+                dxp  = dx/refi              # size of subgrid pixel
+                dyp  = dy/refi              # size of subgrid pixel
+                
+                nrcb = int(np.floor(nrmax/refi))         # nr of regular cells in a block            
+                nrbn = int(np.ceil((n1 - n0 + 1)/nrcb))  # nr of blocks in n direction
+                nrbm = int(np.ceil((m1 - m0 + 1)/nrcb))  # nr of blocks in m direction
+
+                logger.info("Number of regular cells in a block : " + str(nrcb))
+                logger.info("Number of blocks in n direction    : " + str(nrbn))
+                logger.info("Number of blocks in m direction    : " + str(nrbm))
+                
+                logger.info("Grid size of flux grid             : dx= " + str(dx) + ", dy= " + str(dy))
+                logger.info("Grid size of subgrid pixels        : dx= " + str(dxp) + ", dy= " + str(dyp))
+
+                ib = -1
+                ibt = 1
+
+                # if progress_bar:
+                #     progress_bar.set_text("               Generating Sub-grid Tables (level " + str(ilev) + ") ...                ")
+                #     progress_bar.set_maximum(nrbm * nrbn)
+
+                ## Loop through blocks
+                for ii in range(nrbm):
+                    for jj in range(nrbn):
+                        
+                        # Count
+                        ib += 1
+                        
+                        bn0 = n0  + jj*nrcb               # Index of first n in block
+                        bn1 = min(bn0 + nrcb - 1, n1) + 1 # Index of last n in block (cut off excess above, but add extra cell to compute u and v in the last row)
+                        bm0 = m0  + ii*nrcb               # Index of first m in block
+                        bm1 = min(bm0 + nrcb - 1, m1) + 1 # Index of last m in block (cut off excess to the right, but add extra cell to compute u and v in the last column)
+
+                        logger.debug("Processing block " + str(ib + 1) + " of " + str(nrbn*nrbm) + " ...")
+
+                        # Now build the pixel matrix
+                        x00 = 0.5*dxp + bm0*refi*dyp
+                        x01 = x00 + (bm1 - bm0 + 1)*refi*dxp
+                        y00 = 0.5*dyp + bn0*refi*dyp
+                        y01 = y00 + (bn1 - bn0 + 1)*refi*dyp
+                        
+                        x0 = np.arange(x00, x01, dxp)
+                        y0 = np.arange(y00, y01, dyp)
+                        xg0, yg0 = np.meshgrid(x0, y0)
+                        # Rotate and translate
+                        xg = self.quadtree.data.x0 + self.quadtree.data.cosrot*xg0 - self.quadtree.data.sinrot*yg0
+                        yg = self.quadtree.data.y0 + self.quadtree.data.sinrot*xg0 + self.quadtree.data.cosrot*yg0
+
+                        # Clear variables
+                        del x0, y0, xg0, yg0
+                        
+                        # # Create xarray data array with xg and yg
+                        # da_xg = xr.DataArray(xg, dims=["y", "x"])
+                        # da_yg = xr.DataArray(yg, dims=["y", "x"])
+                        # Create xarray data array with depths and coordinate da_xg and da_yg
+                        coords = {
+                            "yc": (("y", "x"), yg),
+                            "xc": (("y", "x"), xg),
+                        }
+                        da_block = xr.DataArray(np.zeros(((bn1 - bn0 + 1)*refi, (bm1 - bm0 + 1)*refi)),
+                                            dims=("y", "x"), 
+                                            coords=coords)
+                        # Make sure da_sbg has the correct CRS
+                        # da_sbg.raster.set_crs(ds_mesh.ugrid.grid.crs)      # TODO       
+                                
         # Done
         self.logger.info(f"Done with determination of values (in blocks).")
 

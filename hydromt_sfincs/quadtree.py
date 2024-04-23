@@ -213,6 +213,52 @@ class QuadtreeGrid:
         # add data to grid    
         self.data["scs"] = uda_scs
         
+    # Function to create curve number for SFINCS including recovery via saturated hydraulic conductivity [mm/hr]
+    # def setup_cn_infiltration_with_ks(
+    #     self, lulc, hsg, ksat, reclass_table, effective, block_size=2000
+    # ):
+    #     """Setup model the Soil Conservation Service (SCS) Curve Number (CN) files for SFINCS
+    #     including recovery term based on the soil saturation
+
+    #     Parameters
+    #     ---------
+    #     lulc : str, Path, or RasterDataset
+    #         Landuse/landcover data set
+    #     hsg : str, Path, or RasterDataset
+    #         HSG (Hydrological Similarity Group) in integers
+    #     ksat : str, Path, or RasterDataset
+    #         Ksat (saturated hydraulic conductivity) [mm/hr]
+    #     reclass_table : str, Path, or RasterDataset
+    #         reclass table to relate landcover with soiltype
+    #     effective : float
+    #         estimate of percentage effective soil, e.g. 0.50 for 50%
+    #     block_size : float
+    #         maximum block size - use larger values will get more data in memory but can be faster, default=2000
+    #     """
+    #     # TL: based on class SubgridTableQuadtree's def 'build'
+    #     # TODO: both these functions of going through blocks could be put in a more generic function
+        
+        
+        
+    #     bbox = da_block.raster.bbox        
+        
+    #     # Read the datafiles
+    #     da_landuse = self.data_catalog.get_rasterdataset(
+    #         lulc, bbox=self.bbox, buffer=10
+    #     )
+    #     da_HSG = self.data_catalog.get_rasterdataset(
+    #         hsg, bbox=self.bbox, buffer=10
+    #     )
+    #     da_Ksat = self.data_catalog.get_rasterdataset(
+    #         ksat, bbox=self.bbox, buffer=10
+    #     )
+    #     df_map = self.data_catalog.get_dataframe(reclass_table, index_col=0)
+
+    #     # Define outputs
+    #     da_smax = xr.full_like(self.mask, -9999, dtype=np.float32)
+    #     da_ks = xr.full_like(self.mask, -9999, dtype=np.float32)
+        
+                
     def setup_mask_active(
             self,
             model: str = "sfincs",

@@ -1,0 +1,38 @@
+meta:
+   root: p:\11206085-onr-fhics\02_models\SFINCS_flooding\02_modelsetup\soil\
+
+HYSOGs250m:
+  crs: 4326
+  data_type: RasterDataset
+  driver: raster
+  kwargs:
+    chunks:
+      x: 3600
+      y: 3600
+  path: Global_Hydrologic_Soil_Group_1566\Global_Hydrologic_Soil_Group_1566\data\HYSOGs250m.tif
+  meta:
+    category: soil
+    paper_doi: 10.3334/ORNLDAAC/1566
+    paper_ref: Ross. et al (2018)
+    source_url: https://daac.ornl.gov/cgi-bin/dsviewer.pl?ds_id=1566
+    source_version: v1.0
+    
+Global_Ksat_1Km_s0:
+  crs: 4326
+  data_type: RasterDataset
+  driver: raster
+  kwargs:
+    chunks:
+      x: 3600
+      y: 3600
+  path: Global_Ksat_1Km_s0....0cm_v1.0.tif
+  unit_mult:
+    Global_Ksat_1Km_s0: 0.115740741 
+  meta:
+    category: soil
+    paper_doi: 10.5281/zenodo.3935359
+    paper_ref: Gupta. et al (2020)
+    source_url: https://zenodo.org/record/3935359#.ZFyyT3ZByUk
+    source_version: v2.0
+  
+   
