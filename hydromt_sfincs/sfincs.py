@@ -1470,15 +1470,17 @@ class SfincsModel(GridModel):
         #%% Same for looping over quadtree mesh, but including levels
         elif self.grid_type == "quadtree":
             
-            refi   = 1 TODO CHECK what we need herenr_subgrid_pixels
+            refi   = 1 #TODO: this piece is overhead, because we don't need subgrid pixel accuracy for this
             
             nr_cells = mesh2d.n_face            
             nlevs = self.quadtree.data.nr_levels
-            
+            cosrot = np.cos(self.quadtree.data.rotation*np.pi/180)
+            sinrot = np.sin(self.quadtree.data.rotation*np.pi/180)
+                    
             # Grid neighbors
             level = self.quadtree.data.level - 1 # TODO TL: CHECK correct?
-            n   = self.quadtree.data.n - 1
-            m   = self.quadtree.data.m - 1
+            n   = self.quadtree.data.n.values - 1 #We want values, not the xarray.DataArray
+            m   = self.quadtree.data.m.values - 1
                             
             # Determine first indices and number of cells per refinement level
             ifirst = np.zeros(nlevs, dtype=int)
@@ -1559,8 +1561,8 @@ class SfincsModel(GridModel):
                         y0 = np.arange(y00, y01, dyp)
                         xg0, yg0 = np.meshgrid(x0, y0)
                         # Rotate and translate
-                        xg = self.quadtree.data.x0 + self.quadtree.data.cosrot*xg0 - self.quadtree.data.sinrot*yg0
-                        yg = self.quadtree.data.y0 + self.quadtree.data.sinrot*xg0 + self.quadtree.data.cosrot*yg0
+                        xg = self.quadtree.data.x0 + cosrot*xg0 - sinrot*yg0
+                        yg = self.quadtree.data.y0 + sinrot*xg0 + cosrot*yg0
 
                         # Clear variables
                         del x0, y0, xg0, yg0
@@ -1575,10 +1577,11 @@ class SfincsModel(GridModel):
                         }
                         da_block = xr.DataArray(np.zeros(((bn1 - bn0 + 1)*refi, (bm1 - bm0 + 1)*refi)),
                                             dims=("y", "x"), 
-                                            coords=coords)
+                                            coords=coords)                    
                         # Make sure da_sbg has the correct CRS
                         # da_sbg.raster.set_crs(ds_mesh.ugrid.grid.crs)      # TODO       
-                                
+                        # da_block.raster.set_crs(self.quadtree.data.crs)
+                        da_block.raster.set_crs(mesh2d.crs)        
         # Done
         self.logger.info(f"Done with determination of values (in blocks).")
 
