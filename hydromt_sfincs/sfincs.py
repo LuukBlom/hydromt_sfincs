@@ -1387,11 +1387,11 @@ class SfincsModel(GridModel):
             mesh2d = self.quadtree.data.grid
             
             # make an empty data array
-            smax = xr.DataArray(
+            da_smax = xr.DataArray(
                 data=np.full(shape=len(mesh2d.face_coordinates), fill_value=np.nan),
                 dims=mesh2d.face_dimension,
             ) 
-            ks = smax.copy()                       
+            da_ks = da_smax.copy()                       
             # self.quadtree.data['smax'] = 
             # self.quadtree.data['ks'] = 
     
@@ -1581,7 +1581,57 @@ class SfincsModel(GridModel):
                         # Make sure da_sbg has the correct CRS
                         # da_sbg.raster.set_crs(ds_mesh.ugrid.grid.crs)      # TODO       
                         # da_block.raster.set_crs(self.quadtree.data.crs)
-                        da_block.raster.set_crs(mesh2d.crs)        
+                        da_block.raster.set_crs(mesh2d.crs)      
+                        
+                        # Call workflow
+                        (
+                            da_smax_block,
+                            da_ks_block,
+                        ) = workflows.curvenumber.scs_recovery_determination(
+                            da_landuse, da_HSG, da_Ksat, df_map, da_block
+                        )
+
+                        # Make arrays with indices of cells (and uv points) in this block
+
+                        # First we loop through all the possible cells in this block
+                        index_cells_in_block = np.zeros(nrcb*nrcb, dtype=int)
+                        # index_uv_points_in_block = np.zeros(4*nrcb*nrcb, dtype=int)
+                        # Loop through all cells in this level
+                        nr_cells_in_block = 0
+                        # nr_uv_points_in_block = 0
+                        # Check if cells fall within this block
+                        for ic in range(nr_cells_in_level):
+                            indx = cell_indices_in_level[ic] # index of the whole quadtree
+                            if n[indx]>=bn0 and n[indx]<bn1 and m[indx]>=bm0 and m[indx]<bm1:
+                                # Cell falls inside block
+                                index_cells_in_block[nr_cells_in_block] = indx
+                                nr_cells_in_block += 1
+                        index_cells_in_block = index_cells_in_block[0:nr_cells_in_block]
+
+                        logger.debug("Number of active cells in block    : " + str(nr_cells_in_block))
+                    
+                        # nn = n[index_cells_in_block]
+                        # mm = m[index_cells_in_block]
+                    
+                        # for ic in range(nn):
+                        #     indx = index_cells_in_block[ic]
+                        #     da_smax.values[indx] = da_smax_block[nn[ic], mm[ic]].values
+                        #     da_ks.values[indx] = da_ks_block[nn[ic], mm[ic]].values
+                        
+                        # # New place in the overall matrix
+                        # # Loop through all active cells in this block
+                        for ic in range(nr_cells_in_block): # TODO - TL: this should be possible without for loop / parallelised 
+                            # Index in full quadtree mesh
+                            indx = index_cells_in_block[ic]
+
+                            # Get indices of pixels in block
+                            nn  = n[indx] - bn0
+                            mm  = m[indx] - bm0
+
+                            # Matrix with pixels in cell                                                    
+                            da_smax.values[indx] = da_smax_block[nn, mm]#.flatten()
+                            da_ks.values[indx] = da_ks_block[nn, mm]#.flatten()
+               
         # Done
         self.logger.info(f"Done with determination of values (in blocks).")
 
@@ -1593,13 +1643,20 @@ class SfincsModel(GridModel):
         # set grids for seff, smax and ks (saturated hydraulic conductivity)
         names = ["smax", "seff", "ks"]
         data = [da_smax, da_seff, da_ks]
-        for name, da in zip(names, data):
-            # Give metadata to the layer and set grid
+        
+        for name, da in zip(names, data):   
             da.attrs.update(**self._ATTRS.get(name, {}))
-            self.set_grid(da, name=name)
-
             # update config: set maps
             self.set_config(f"{name}file", f"sfincs.{name}")  # give it to SFINCS
+                                     
+            if self.grid_type == "regular":                                            
+                # Give metadata to the layer and set grid
+                self.set_grid(da, name=name)
+
+            elif self.grid_type == "quadtree":
+                
+                # self.quadtree.set_grid(da, name=name)
+                self.quadtree.data[name] = da    
 
         # Remove qinf variable in sfincs
         self.config.pop("qinf", None)
