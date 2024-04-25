@@ -72,6 +72,7 @@ def scs_recovery_determination(
     # very high 	100 - Inf
     da_ks = da_Ksat.raster.reproject_like(da_ks, method="average").load()
     da_ks = np.minimum(da_ks, 100)  # not higher than 100
+    da_ks = np.maximum(da_ks, 0)    # not below 0
     da_ks = da_ks * 3.6  # from micrometers per second to mm/hr    (constant)
 
     # Ensure no NaNs

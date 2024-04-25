@@ -124,7 +124,7 @@ class QuadtreeGrid:
         if 'smax' in self.data:
             
             # copy cn recharge infiltration vars to separate ds
-            dsinfiltration = ds[['smax', 'seff', 'ks','crs','mesh2d','mesh2d_edge_nodes','mesh2d_face_nodes','mesh2d_node_x','mesh2d_node_y']]
+            dsinfiltration = ds[['mask','smax', 'seff', 'ks','crs','mesh2d','mesh2d_edge_nodes','mesh2d_face_nodes','mesh2d_node_x','mesh2d_node_y']]
             
             # drop these from grid quadtree file
             ds = ds.drop_vars(["smax", "seff", "ks"])                    
