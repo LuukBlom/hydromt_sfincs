@@ -1643,21 +1643,23 @@ class SfincsModel(GridModel):
         # set grids for seff, smax and ks (saturated hydraulic conductivity)
         names = ["smax", "seff", "ks"]
         data = [da_smax, da_seff, da_ks]
-        
+                                      
         for name, da in zip(names, data):   
-            da.attrs.update(**self._ATTRS.get(name, {}))
-            # update config: set maps
-            self.set_config(f"{name}file", f"sfincs.{name}")  # give it to SFINCS
-                                     
-            if self.grid_type == "regular":                                            
+            da.attrs.update(**self._ATTRS.get(name, {}))                                                    
+            if self.grid_type == "regular":    
+                # write separate files for regular:
+                # update config: set maps
+                self.set_config(f"{name}file", f"sfincs.{name}")  # give it to SFINCS                                   
+                
                 # Give metadata to the layer and set grid
                 self.set_grid(da, name=name)
 
             elif self.grid_type == "quadtree":
-                
-                # self.quadtree.set_grid(da, name=name)
+                # write one combined sfincs_infiltration.nc file for quadtree: 
                 self.quadtree.data[name] = da    
 
+                self.set_config(f"netinfiltrationfile", f"sfincs_infiltration.nc")
+                
         # Remove qinf variable in sfincs
         self.config.pop("qinf", None)
 

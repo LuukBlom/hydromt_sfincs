@@ -105,7 +105,6 @@ class QuadtreeGrid:
         """Writes a quadtree SFINCS netcdf file."""
        
        # TODO do we want to cut inactive cells here? Or already when creating the mask?
-        
         attrs = self.data.attrs
         ds = self.data.ugrid.to_dataset()
 
@@ -116,6 +115,20 @@ class QuadtreeGrid:
         ds = ds.rename({"snapwave_msk": "snapwave_mask"}) if "snapwave_msk" in ds else ds
 
         ds.attrs = attrs
+                        
+        if 'smax' in self.data:
+            
+            # copy cn recharge infiltration vars to separate ds
+            dsinfiltration = ds[['smax', 'seff', 'ks','crs','mesh2d','mesh2d_edge_nodes','mesh2d_face_nodes','mesh2d_node_x','mesh2d_node_y']]
+            
+            # drop these from grid quadtree file
+            ds = ds.drop_vars(["smax", "seff", "ks"])                    
+            
+            # # write quadtree infiltration netcdf             
+            dsinfiltration.to_netcdf("sfincs_infiltration.nc")
+            # TODO - add root when writing, or change 'file_name' including "_infiltration"
+
+        # write quadtree grid netcdf            
         ds.to_netcdf(file_name)
 
     def build(
